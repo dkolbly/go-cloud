@@ -44,9 +44,9 @@
 // s3blob exposes the following types for As:
 //   - Bucket: (V1) *s3.S3; (V2) *s3v2.Client
 //   - Error: (V1) awserr.Error; (V2) any error type returned by the service, notably smithy.APIError
-//   - ListObject: (V1) s3.Object for objects, s3.CommonPrefix for "directories"; (V2) typesv2.Object for objects, typesv2.CommonPrefix for "directories
+//   - ListObject: (V1) s3.Object for objects, s3.CommonPrefix for "directories"; (V2) typesv2.Object for objects, typesv2.CommonPrefix for "directories"
 //   - ListOptions.BeforeList: (V1) *s3.ListObjectsV2Input, or *s3.ListObjectsInput
-//     when Options.UseLegacyList == true; (V2) *s3v2.ListObjectsV2Input, or *s3v2.ListObjectsInput
+//     when Options.UseLegacyList == true; (V2) *s3v2.ListObjectsV2Input or *[]func(*s3v2.Options), or *s3v2.ListObjectsInput
 //     when Options.UseLegacyList == true
 //   - Reader: (V1) s3.GetObjectOutput; (V2) s3v2.GetObjectInput
 //   - ReaderOptions.BeforeRead: (V1) *s3.GetObjectInput; (V2) *s3v2.GetObjectInput
@@ -274,6 +274,7 @@ type writer struct {
 	// v2
 	uploaderV2 *s3managerv2.Uploader
 	reqV2      *s3v2.PutObjectInput
+	optsV2     []func(*s3v2.Options)
 
 	donec chan struct{} // closed when done writing
 	// The following fields will be written before donec closes:
@@ -528,20 +529,24 @@ func (b *bucket) ListPaged(ctx context.Context, opts *driver.ListOptions) (*driv
 
 func (b *bucket) listObjectsV2(ctx context.Context, in *s3v2.ListObjectsV2Input, opts *driver.ListOptions) (*s3v2.ListObjectsV2Output, error) {
 	if !b.useLegacyList {
+		var varopt []func(*s3v2.Options)
 		if opts.BeforeList != nil {
 			asFunc := func(i interface{}) bool {
-				p, ok := i.(**s3v2.ListObjectsV2Input)
-				if !ok {
-					return false
+				if p, ok := i.(**s3v2.ListObjectsV2Input); ok {
+					*p = in
+					return true
 				}
-				*p = in
-				return true
+				if p, ok := i.(**[]func(*s3v2.Options)); ok {
+					*p = &varopt
+					return true
+				}
+				return false
 			}
 			if err := opts.BeforeList(asFunc); err != nil {
 				return nil, err
 			}
 		}
-		return b.clientV2.ListObjectsV2(ctx, in)
+		return b.clientV2.ListObjectsV2(ctx, in, varopt...)
 	}
 
 	// Use the legacy ListObjects request.
@@ -776,10 +781,15 @@ func (b *bucket) NewRangeReader(ctx context.Context, key string, offset, length 
 			Key:    aws.String(key),
 			Range:  byteRange,
 		}
+		var varopt []func(*s3v2.Options)
 		if opts.BeforeRead != nil {
 			asFunc := func(i interface{}) bool {
 				if p, ok := i.(**s3v2.GetObjectInput); ok {
 					*p = in
+					return true
+				}
+				if p, ok := i.(**[]func(*s3v2.Options)); ok {
+					*p = &varopt
 					return true
 				}
 				return false
@@ -788,7 +798,7 @@ func (b *bucket) NewRangeReader(ctx context.Context, key string, offset, length 
 				return nil, err
 			}
 		}
-		resp, err := b.clientV2.GetObject(ctx, in)
+		resp, err := b.clientV2.GetObject(ctx, in, varopt...)
 		if err != nil {
 			return nil, err
 		}
@@ -958,16 +968,19 @@ func (b *bucket) NewTypedWriter(ctx context.Context, key string, contentType str
 		if len(opts.ContentMD5) > 0 {
 			reqV2.ContentMD5 = aws.String(base64.StdEncoding.EncodeToString(opts.ContentMD5))
 		}
+		var varopt []func(*s3v2.Options)
 		if opts.BeforeWrite != nil {
 			asFunc := func(i interface{}) bool {
-				pu, ok := i.(**s3managerv2.Uploader)
-				if ok {
-					*pu = uploaderV2
+				if p, ok := i.(**s3managerv2.Uploader); ok {
+					*p = uploaderV2
 					return true
 				}
-				pui, ok := i.(**s3v2.PutObjectInput)
-				if ok {
-					*pui = reqV2
+				if p, ok := i.(**s3v2.PutObjectInput); ok {
+					*p = reqV2
+					return true
+				}
+				if p, ok := i.(**[]func(*s3v2.Options)); ok {
+					*p = &varopt
 					return true
 				}
 				return false
@@ -981,6 +994,7 @@ func (b *bucket) NewTypedWriter(ctx context.Context, key string, contentType str
 			useV2:      true,
 			uploaderV2: uploaderV2,
 			reqV2:      reqV2,
+			optsV2:     varopt,
 			donec:      make(chan struct{}),
 		}, nil
 	} else {
