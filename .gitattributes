@@ -4,3 +4,5 @@
 **/testdata/**/*.replay  linguist-generated=true
 *.replay binary
 
+*.png binary
+samples/order/testdata/cat1 binary

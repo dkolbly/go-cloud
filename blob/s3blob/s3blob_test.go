@@ -27,6 +27,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/client"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
@@ -228,28 +229,40 @@ func (v verifyContentLanguage) BeforeCopy(as func(interface{}) bool) error {
 func (v verifyContentLanguage) BeforeList(as func(interface{}) bool) error {
 	if v.useV2 {
 		if v.usingLegacyList {
+			panic("BeforeList1")
 			var req *s3v2.ListObjectsInput
 			if !as(&req) {
-				return errors.New("List.As failed")
+				return errors.New("List.As failed1")
 			}
 		} else {
-			var req *s3v2.ListObjectsV2Input
-			if !as(&req) {
-				return errors.New("List.As failed")
+			panic("BeforeList2")
+			var (
+				list *s3v2.ListObjectsV2Input
+				// opts []func(*s3v2.Options)
+			)
+			if as(&list) {
+				return nil
 			}
+			return errors.New("List.As failed2")
 		}
 		return nil
 	}
 	if v.usingLegacyList {
+		panic("BeforeList3")
 		var req *s3.ListObjectsInput
 		if !as(&req) {
-			return errors.New("List.As failed")
+			return errors.New("List.As failed3")
 		}
 	} else {
-		var req *s3.ListObjectsV2Input
-		if !as(&req) {
-			return errors.New("List.As failed")
+		var (
+			list *s3v2.ListObjectsV2Input
+			opts *[]request.Option
+		)
+		if as(&opts) && as(&list) {
+			return nil
 		}
+		panic("BeforeList4")
+		return fmt.Errorf("List.As failed4")
 	}
 	return nil
 }

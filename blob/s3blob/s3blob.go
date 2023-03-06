@@ -532,6 +532,7 @@ func (b *bucket) listObjectsV2(ctx context.Context, in *s3v2.ListObjectsV2Input,
 		var varopt []func(*s3v2.Options)
 		if opts.BeforeList != nil {
 			asFunc := func(i interface{}) bool {
+				panic("here")
 				if p, ok := i.(**s3v2.ListObjectsV2Input); ok {
 					*p = in
 					return true
@@ -592,20 +593,25 @@ func (b *bucket) listObjectsV2(ctx context.Context, in *s3v2.ListObjectsV2Input,
 
 func (b *bucket) listObjects(ctx context.Context, in *s3.ListObjectsV2Input, opts *driver.ListOptions) (*s3.ListObjectsV2Output, error) {
 	if !b.useLegacyList {
+		var varopt []request.Option
 		if opts.BeforeList != nil {
 			asFunc := func(i interface{}) bool {
-				p, ok := i.(**s3.ListObjectsV2Input)
-				if !ok {
-					return false
+				if p, ok := i.(**s3.ListObjectsV2Input); ok {
+					*p = in
+					return true
 				}
-				*p = in
-				return true
+				if p, ok := i.(**[]request.Option); ok {
+					*p = &varopt
+					return true
+				}
+				panic(fmt.Sprintf("type %T vs %T", i, &in))
+				return false
 			}
 			if err := opts.BeforeList(asFunc); err != nil {
 				return nil, err
 			}
 		}
-		return b.client.ListObjectsV2WithContext(ctx, in)
+		return b.client.ListObjectsV2WithContext(ctx, in, varopt...)
 	}
 
 	// Use the legacy ListObjects request.
