@@ -173,8 +173,11 @@ func (v verifyContentLanguage) ErrorCheck(b *blob.Bucket, err error) error {
 
 func (v verifyContentLanguage) BeforeRead(as func(interface{}) bool) error {
 	if v.useV2 {
-		var req *s3v2.GetObjectInput
-		if !as(&req) {
+		var (
+			req  *s3v2.GetObjectInput
+			opts *[]func(*s3v2.Options)
+		)
+		if !as(&req) || !as(&opts) {
 			return errors.New("BeforeRead As failed")
 		}
 		return nil
@@ -188,8 +191,11 @@ func (v verifyContentLanguage) BeforeRead(as func(interface{}) bool) error {
 
 func (v verifyContentLanguage) BeforeWrite(as func(interface{}) bool) error {
 	if v.useV2 {
-		var req *s3v2.PutObjectInput
-		if !as(&req) {
+		var (
+			req  *s3v2.PutObjectInput
+			uploader *s3managerv2.Uploader
+		)
+		if !as(&req) || !as(&uploader) {
 			return errors.New("Writer.As failed for PutObjectInput")
 		}
 		req.ContentLanguage = aws.String(language)
@@ -229,18 +235,18 @@ func (v verifyContentLanguage) BeforeCopy(as func(interface{}) bool) error {
 func (v verifyContentLanguage) BeforeList(as func(interface{}) bool) error {
 	if v.useV2 {
 		if v.usingLegacyList {
-			panic("BeforeList1")
 			var req *s3v2.ListObjectsInput
 			if !as(&req) {
 				return errors.New("List.As failed1")
 			}
 		} else {
-			panic("BeforeList2")
 			var (
 				list *s3v2.ListObjectsV2Input
-				// opts []func(*s3v2.Options)
+				opts *[]func(*s3v2.Options)
 			)
-			if as(&list) {
+			// make sure we can extract ALL the underlying GCS types
+			// for this call
+			if as(&list) && as(&opts) {
 				return nil
 			}
 			return errors.New("List.As failed2")
@@ -248,20 +254,20 @@ func (v verifyContentLanguage) BeforeList(as func(interface{}) bool) error {
 		return nil
 	}
 	if v.usingLegacyList {
-		panic("BeforeList3")
 		var req *s3.ListObjectsInput
 		if !as(&req) {
 			return errors.New("List.As failed3")
 		}
 	} else {
 		var (
-			list *s3v2.ListObjectsV2Input
+			list *s3.ListObjectsV2Input
 			opts *[]request.Option
 		)
+		// make sure we can extract ALL the underlying GCS types
+		// for this call
 		if as(&opts) && as(&list) {
 			return nil
 		}
-		panic("BeforeList4")
 		return fmt.Errorf("List.As failed4")
 	}
 	return nil
